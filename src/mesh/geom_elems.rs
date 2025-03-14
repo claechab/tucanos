@@ -352,6 +352,256 @@ impl<const D: usize, M: Metric<D>> GElem<D, M> for GTetrahedron<D, M> {
     }
 }
 
+/// GTetrahedron quadratique 
+
+#[derive(Clone, Copy, Debug)]
+pub struct GTetrahedronQuadratique<const D: usize, M: Metric<D>> {
+    points: [Point<D>; 10],
+    metrics: [M; 10],
+}
+
+impl<const D: usize, M: Metric<D>> GTetrahedron<D, M> {
+    const DIM: f64 = 3.0;
+    // Jacobian of the reference to equilateral transformation
+    const J_EQ: Matrix3<f64> = Matrix3::new(
+        1.0,
+        -1. / SQRT_3,
+        -1. / SQRT_6,
+        0.,
+        2. / SQRT_3,
+        -1.0 / SQRT_6,
+        0.,
+        0.,
+        3. / SQRT_6,
+    );
+
+    /// Get the jacobian of the transformation from the reference to the current element
+    pub fn jacobian(&self) -> Matrix3<f64> {
+        Matrix3::<f64>::new(
+            self.points[1][0] - self.points[0][0],
+            self.points[2][0] - self.points[0][0],
+            self.points[3][0] - self.points[0][0],
+            self.points[1][1] - self.points[0][1],
+            self.points[2][1] - self.points[0][1],
+            self.points[3][1] - self.points[0][1],
+            self.points[1][2] - self.points[0][2],
+            self.points[2][2] - self.points[0][2],
+            self.points[3][2] - self.points[0][2],
+        )
+    }
+
+    /// Compute the implied metric
+    /// It can be computed using the Jacobian $`J`$ of the transformation from the
+    /// reference unit-length element to the physical element as $`(J J^T)^{-1}`$ .
+    /// $`J`$ can be decomposed as the product of
+    ///  - the Jacobian $`J_0`$ of the transformation from the reference unit-length
+    ///    element to the orthogonal element, stored as `Self::J_EQ`
+    ///  - the Jacobian $`J_1`$ of the transformation from the orthogonal element to
+    ///    the physical element
+    ///
+    /// (reference: Ph.D. P. Caplan, p. 35)
+    pub fn implied_metric(&self) -> AnisoMetric3d {
+        let j = self.jacobian() * Self::J_EQ;
+        let m = j * j.transpose();
+        let m = m.try_inverse().unwrap();
+        AnisoMetric3d::from_mat(m)
+    }
+}
+
+impl<const D: usize, M: Metric<D>> GElem<D, M> for GTetrahedronQuadratique<D, M> {
+    type Face = GTriangleQuadratique<D, M>;
+    type BCoords = Vector4<f64>;
+    const IDEAL_VOL: f64 = 1.0 / (6.0 * std::f64::consts::SQRT_2);
+
+    fn vert(&self, i: Idx) -> Point<D> {
+        self.points[i as usize]
+    }
+
+    fn from_verts<I: Iterator<Item = (Point<D>, M)>>(mut points_n_metrics: I) -> Self {
+        assert_eq!(D, 3);
+        let p: [_; 4] = std::array::from_fn(|_| points_n_metrics.next().unwrap());
+        assert!(points_n_metrics.next().is_none());
+        Self {
+            points: p.map(|x| x.0),
+            metrics: p.map(|x| x.1),
+        }
+    }
+
+    fn from_vert_and_face(point: &Point<D>, metric: &M, face: &Self::Face) -> Self {
+        Self {
+            points: [*point, face.points[0], face.points[1], face.points[2]],
+            metrics: [*metric, face.metrics[0], face.metrics[1], face.metrics[2]],
+        }
+    }
+
+    fn vol(&self) -> f64 {
+        let e1 = self.points[1] - self.points[0];
+        let e2 = self.points[2] - self.points[0];
+        let e3 = self.points[3] - self.points[0];
+        let n = e1.cross(&e2);
+        (1. / 6.) * n.dot(&e3)
+    }
+
+    fn center(&self) -> Point<D> {
+        (self.points[0] + self.points[1] + self.points[2] + self.points[3] + self.points[4] 
+            + self.points[5] + self.points[6] + self.points[7] + self.points[8] + self.points[9]) / 10.0
+    }
+
+    fn quality(&self) -> f64 {
+        let m = M::min_metric(self.metrics.iter());
+
+        let mut e1 = self.points[1] - self.points[0];
+        let e2 = self.points[2] - self.points[0];
+        let e3 = self.points[3] - self.points[0];
+        let n = e1.cross(&e2);
+        let vol = (1. / 6.) * n.dot(&e3);
+        if vol < 0.0 {
+            return -1.0;
+        }
+
+        let mut l = f64::powi(m.length(&e1), 2);
+        l += f64::powi(m.length(&e2), 2);
+        l += f64::powi(m.length(&e3), 2);
+        e1 = self.points[1] - self.points[2];
+        l += f64::powi(m.length(&e1), 2);
+        e1 = self.points[2] - self.points[3];
+        l += f64::powi(m.length(&e1), 2);
+        e1 = self.points[3] - self.points[1];
+        l += f64::powi(m.length(&e1), 2);
+
+        let l = l / 6.0;
+        let vol = vol / m.vol() / Self::IDEAL_VOL;
+
+        f64::powf(vol, 2. / Self::DIM) / l
+    }
+
+    fn point(&self, x: &[f64]) -> Point<D> {
+        if x.len() == 4 {
+            x[0]**2 * self.points[0]
+                + x[1]**2 * self.points[1]
+                + x[2]**2 * self.points[2]
+                + x[3]**2 * self.points[3]
+                + 2 * x[0] * x[1] * self.points[4]
+                + 2 * x[0] * x[2] * self.points[6]
+                + 2 * x[0] * x[3] * self.points[7]
+                + 2 * x[1] * x[2] * self.points[5]
+                + 2 * x[1] * x[3] * self.points[8]
+                + 2 * x[2] * x[3] * self.points[9]
+        } else if x.len() == 3 {
+            (1. - x[0] - x[1] - x[2])**2 * self.points[0]
+                + x[1]**2 * self.points[1]
+                + x[2]**2 * self.points[2]
+                + x[3]**2 * self.points[3]
+                + 2 * (1. - x[0] - x[1] - x[2]) * x[1] * self.points[4]
+                + 2 * (1. - x[0] - x[1] - x[2]) * x[2] * self.points[6]
+                + 2 * (1. - x[0] - x[1] - x[2]) * x[3] * self.points[7]
+                + 2 * x[1] * x[2] * self.points[5]
+                + 2 * x[1] * x[3] * self.points[8]
+                + 2 * x[2] * x[3] * self.points[9]
+        } else {
+            unreachable!();
+        }
+    }
+
+    fn bcoords(&self, p: &Point<D>) -> Self::BCoords {
+        let a = Matrix4::new(
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            self.points[0][0],
+            self.points[1][0],
+            self.points[2][0],
+            self.points[3][0],
+            self.points[0][1],
+            self.points[1][1],
+            self.points[2][1],
+            self.points[3][1],
+            self.points[0][2],
+            self.points[1][2],
+            self.points[2][2],
+            self.points[3][2],
+        );
+        let b = Vector4::new(1., p[0], p[1], p[2]);
+        let decomp = a.lu();
+        decomp.solve(&b).unwrap()
+    }
+
+    fn scaled_normal(&self) -> Point<D> {
+        unreachable!();
+    }
+
+    fn gface(&self, i: Idx) -> Self::Face {
+        match i {
+            0 => GTriangle {
+                points: [self.points[1], self.points[2], self.points[3]],
+                metrics: [self.metrics[1], self.metrics[2], self.metrics[3]],
+            },
+            1 => GTriangle {
+                points: [self.points[2], self.points[0], self.points[3]],
+                metrics: [self.metrics[2], self.metrics[0], self.metrics[3]],
+            },
+            2 => GTriangle {
+                points: [self.points[0], self.points[1], self.points[3]],
+                metrics: [self.metrics[0], self.metrics[1], self.metrics[3]],
+            },
+            3 => GTriangle {
+                points: [self.points[0], self.points[2], self.points[1]],
+                metrics: [self.metrics[0], self.metrics[2], self.metrics[1]],
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn gamma(&self) -> f64 {
+        let vol = self.vol();
+        if vol < f64::EPSILON {
+            return 0.0;
+        }
+
+        let a = self.points[1] - self.points[0];
+        let b = self.points[2] - self.points[0];
+        let c = self.points[3] - self.points[0];
+
+        let aa = self.points[3] - self.points[2];
+        let bb = self.points[3] - self.points[1];
+        let cc = self.points[2] - self.points[1];
+
+        let la = a.norm_squared();
+        let lb = b.norm_squared();
+        let lc = c.norm_squared();
+        let laa = aa.norm_squared();
+        let lbb = bb.norm_squared();
+        let lcc = cc.norm_squared();
+
+        let lalaa = (la * laa).sqrt();
+        let lblbb = (lb * lbb).sqrt();
+        let lclcc = (lc * lcc).sqrt();
+
+        let tmp = (lalaa + lblbb + lclcc)
+            * (lalaa + lblbb - lclcc)
+            * (lalaa - lblbb + lclcc)
+            * (-lalaa + lblbb + lclcc);
+
+        // This happens when the 4 points are (nearly) co-planar
+        // => R is actually undetermined but the quality is (close to) zero
+        if tmp < f64::EPSILON {
+            return 0.0;
+        }
+
+        let r = tmp.sqrt() / 24.0 / vol;
+
+        let s1 = self.gface(0).vol();
+        let s2 = self.gface(1).vol();
+        let s3 = self.gface(2).vol();
+        let s4 = self.gface(3).vol();
+        let rho = 9.0 * vol / (s1 + s2 + s3 + s4);
+
+        rho / r
+    }
+}
+
+
 #[derive(Clone, Copy, Debug)]
 pub struct GTriangle<const D: usize, M: Metric<D>> {
     points: [Point<D>; 3],
@@ -554,6 +804,226 @@ impl<const D: usize, M: Metric<D>> GElem<D, M> for GTriangle<D, M> {
         }
     }
 }
+
+/// GTriangleQuadratique
+
+#[derive(Clone, Copy, Debug)]
+pub struct GTriangleQuadratique<const D: usize, M: Metric<D>> {
+    points: [Point<D>; 6],
+    metrics: [M; 6],
+}
+
+impl<const D: usize, M: Metric<D>> GTriangleQuadratique<D, M> {
+    const DIM: f64 = 3.0;
+
+    /// Get the jacobian of the transformation from the reference to the current element
+    pub fn jacobian(&self, x: &[f64]) -> Matrix3<f64> {
+        if x.len() == 2{
+            Matrix3::<f64>::new(
+                2.0 * (1 - x[0] - x[1]) * self.points[0][0] + 2 * x[0] * self.points[3][0] + 2 * x[1] * self.points[5][0],
+                2 * x[0] * self.points[1][0] + 2 * (1 - x[0] - x[1]) * self.points[3][0] + 2 * x[1] * self.points[4][0],
+                2 * x[1] * self.points[1][0] + 2 * (1 - x[0] - x[1]) *  self.points[5][0] + 2 * x[0] *  self.points[4][0],
+                2 * (1 - x[0] - x[1]) * self.points[0][1] + 2 * x[0] * self.points[3][1] + 2 * x[1] * self.points[5][1],
+                2 * x[0] * self.points[1][1] + 2 * (1 - x[0] - x[1]) * self.points[3][1] + 2 * x[1] * self.points[4][1],
+                2 * x[1] * self.points[1][1] + 2 * (1 - x[0] - x[1]) *  self.points[5][1] + 2 * x[0] *  self.points[4][1],
+                2 * (1 - x[0] - x[1]) * self.points[0][2] + 2 * x[0] * self.points[3][2] + 2 * x[1] * self.points[5][2],
+                2 * x[0] * self.points[1][2] + 2 * (1 - x[0] - x[1]) * self.points[3][2] + 2 * x[1] * self.points[4][2],
+                2 * x[1] * self.points[1][2] + 2 * (1 - x[0] - x[1]) *  self.points[5][2] + 2 * x[0] *  self.points[4][2],
+            )
+
+        } else if x.len() == 3 {
+            Matrix3::<f64>::new(
+                2.0 * x[0] * self.points[0][0] + 2 * x[1] * self.points[3][0] + 2 * x[2] * self.points[5][0],
+                2 * x[1] * self.points[1][0] + 2 * x[0] * self.points[3][0] + 2 * x[2] * self.points[4][0],
+                2 * x[2] * self.points[1][0] + 2 * x[0] *  self.points[5][0] + 2 * x[1] *  self.points[4][0],
+                2 * x[0] * self.points[0][1] + 2 * x[1] * self.points[3][1] + 2 * x[2] * self.points[5][1],
+                2 * x[1] * self.points[1][1] + 2 * x[0] * self.points[3][1] + 2 * x[2] * self.points[4][1],
+                2 * x[2] * self.points[1][1] + 2 * x[0] *  self.points[5][1] + 2 * x[1] *  self.points[4][1],
+                2 * x[0] * self.points[0][2] + 2 * x[1] * self.points[3][2] + 2 * x[2] * self.points[5][2],
+                2 * x[1] * self.points[1][2] + 2 * x[0] * self.points[3][2] + 2 * x[2] * self.points[4][2],
+                2 * x[2] * self.points[1][2] + 2 * x[0] *  self.points[5][2] + 2 * x[1] *  self.points[4][2],
+            )
+        } else {
+            unreachable!();
+        }
+    }
+
+    /// Compute the implied metric
+    pub fn implied_metric(&self, x: &[f64]) -> AnisoMetric2d {
+        let j = self.jacobian(x);
+        let m = j * j.transpose();
+        let m = m.try_inverse().unwrap();
+        AnisoMetric2d::from_mat(m)
+    }
+
+    // Get the edges
+    pub fn edge(&self, i: Idx) -> Point<D> {
+        match i {
+            0 => self.points[1] - self.points[0],
+            1 => self.points[2] - self.points[0],
+            2 => self.points[2] - self.points[1],
+            _ => unreachable!(),
+        }
+    }
+
+    fn cross_norm(e1: &Point<D>, e2: &Point<D>) -> f64 {
+        if D == 2 {
+            (e1[0] * e2[1] - e1[1] * e2[0]).abs()
+        } else {
+            let n = e1.cross(e2);
+            n.norm()
+        }
+    }
+}
+
+impl<const D: usize, M: Metric<D>> GElem<D, M> for GTriangleQuadratique<D, M> {
+    type Face = GEdgeQuadratique<D, M>;
+    type BCoords = Vector3<f64>;
+    const IDEAL_VOL: f64 = SQRT_3 / 4.;
+
+    fn vert(&self, i: Idx) -> Point<D> {
+        self.points[i as usize]
+    }
+
+    fn from_verts<I: Iterator<Item = (Point<D>, M)>>(mut points_n_metrics: I) -> Self {
+        let p: [_; 3] = std::array::from_fn(|_| points_n_metrics.next().unwrap());
+        assert!(points_n_metrics.next().is_none());
+        Self {
+            points: p.map(|x| x.0),
+            metrics: p.map(|x| x.1),
+        }
+    }
+
+    fn from_vert_and_face(point: &Point<D>, metric: &M, face: &Self::Face) -> Self {
+        Self {
+            points: [*point, face.points[0], face.points[1]],
+            metrics: [*metric, face.metrics[0], face.metrics[1]],
+        }
+    }
+
+    fn vol(&self) -> f64 {
+        let e1 = self.points[1] - self.points[0];
+        let e2 = self.points[2] - self.points[0];
+        if D == 2 {
+            // <0 if not properly ordered
+            0.5 * (e1[0] * e2[1] - e1[1] * e2[0])
+        } else {
+            0.5 * Self::cross_norm(&e1, &e2)
+        }
+    }
+
+    fn center(&self) -> Point<D> {
+        (self.points[0] + self.points[1] + self.points[2] + self.points[3] + self.points[4] + self.points[5]) / 6.0
+    }
+
+    fn quality(&self) -> f64 {
+        let m = M::min_metric(self.metrics.iter());
+
+        let mut e1 = self.points[1] - self.points[0];
+        let e2 = self.points[2] - self.points[0];
+        let vol = if D == 2 {
+            0.5 * (e1[0] * e2[1] - e1[1] * e2[0])
+        } else {
+            let n = e1.cross(&e2);
+            0.5 * n.norm()
+        };
+
+        let mut l = f64::powi(m.length(&e1), 2);
+        l += f64::powi(m.length(&e2), 2);
+        e1 = self.points[1] - self.points[2];
+        l += f64::powi(m.length(&e1), 2);
+
+        let l = l / 3.0;
+        let vol = vol / m.vol() / Self::IDEAL_VOL;
+
+        f64::powf(vol, 2. / Self::DIM) / l
+    }
+
+    fn point(&self, x: &[f64]) -> Point<D> {
+        if x.len() == 3 {
+            x[0]**2 self.points[0] + x[1]**2 * self.points[1] + x[2]**2 * self.points[2]
+            + 2 * x[0] * x[1] * self.points[3] + 2 * x[0] * x[2] * self.points[5] + 2 * x[1] * x[2] * self.points[4]
+        } else if x.len() == 2 {
+            (1. - x[0] - x[1])**2 self.points[0] + x[0]**2 * self.points[1] + x[1]**2 * self.points[2]
+            + 2 * (1. - x[0] - x[1]) * x[0] * self.points[3] + 2 * (1. - x[0] - x[1]) * x[1] * self.points[5] + 2 * x[1] * x[2] * self.points[4]
+        } else {
+            unreachable!();
+        }
+    }
+
+    fn bcoords(&self, point: &Point<D>) -> Self::BCoords {
+        let p0 = &self.points[0];
+        let p1 = &self.points[1];
+        let p2 = &self.points[2];
+
+        if D == 2 {
+            let a = Matrix3::new(1.0, 1.0, 1.0, p0[0], p1[0], p2[0], p0[1], p1[1], p2[1]);
+            let b = Vector3::new(1., point[0], point[1]);
+            let decomp = a.lu();
+            decomp.solve(&b).unwrap()
+        } else {
+            let u = p1 - p0;
+            let v = p2 - p0;
+            let n = u.cross(&v);
+            let w = point - p0;
+            let nrm = n.norm_squared();
+            let gamma = u.cross(&w).dot(&n) / nrm;
+            let beta = w.cross(&v).dot(&n) / nrm;
+            Vector3::new(1.0 - beta - gamma, beta, gamma)
+        }
+    }
+
+    fn scaled_normal(&self) -> Point<D> {
+        if D == 3 {
+            let e0 = self.points[1] - self.points[0];
+            let e1 = self.points[2] - self.points[0];
+            0.5 * e0.cross(&e1)
+        } else {
+            unreachable!();
+        }
+    }
+
+    fn gface(&self, i: Idx) -> Self::Face {
+        match i {
+            0 => GEdgeQuadratique {
+                points: [self.points[1], self.points[2], self.points[3]],
+                metrics: [self.metrics[1], self.metrics[2], self.metrics[3]],
+            },
+            1 => GEdgeQuadratique {
+                points: [self.points[2], self.points[0], self.points[4]],
+                metrics: [self.metrics[2], self.metrics[0], self.metrics[4]],
+            },
+            2 => GEdgeQuadratique {
+                points: [self.points[0], self.points[1], self.points[5]],
+                metrics: [self.metrics[0], self.metrics[1], self.metrics[5]],
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn gamma(&self) -> f64 {
+        let mut a = self.points[2] - self.points[1];
+        let mut b = self.points[0] - self.points[2];
+        let mut c = self.points[1] - self.points[0];
+
+        a.normalize_mut();
+        b.normalize_mut();
+        c.normalize_mut();
+
+        let sina = Self::cross_norm(&b, &c);
+        let sinb = Self::cross_norm(&a, &c);
+        let sinc = Self::cross_norm(&a, &b);
+
+        let tmp = sina + sinb + sinc;
+        if tmp < 1e-12 {
+            0.0
+        } else {
+            4.0 * sina * sinb * sinc / tmp
+        }
+    }
+}
+
+
 
 #[derive(Clone, Copy, Debug)]
 pub struct GEdge<const D: usize, M: Metric<D>> {

@@ -1,5 +1,5 @@
 use super::{
-    geom_elems::{GEdge, GElem, GTetrahedron, GTriangle, GVertex},
+    geom_elems::{GEdge, GEdgeQuadratique, GElem, GTetrahedron, GTetrahedronQuadratique, GTriangle, GTriangleQuadratique, GVertex},
     twovec,
 };
 use crate::metric::Metric;
@@ -187,6 +187,100 @@ impl IndexMut<usize> for Tetrahedron {
     }
 }
 
+/// Tetrahedron Quadratique
+#[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, Default)]
+pub struct TetrahedronQuadratique([Idx; 10]);
+
+impl TetrahedronQuadratique {
+    #[must_use]
+    pub const fn new(i0: Idx, i1: Idx, i2: Idx, i3: Idx, i4: Idx, i5: Idx, i6: Idx, i7: Idx, i8: Idx, i9: Idx) -> Self {
+        Self([i0, i1, i2, i3, i4, i5, i6, i7, i8, i9])
+    }
+}
+
+impl Elem for TetrahedronQuadratique {
+    const N_VERTS: Idx = 10;
+    const N_FACES: Idx = 4;
+    const N_EDGES: Idx = 6;
+    const DIM: Idx = 3;
+    const NAME: &'static str = "TetrahedronQuadratique";
+
+    type Face = TriangleQuadratique;
+    type Geom<const D: usize, M: Metric<D>> = GTetrahedronQuadratique<D, M>;
+
+    fn iter(&self) -> Iter<Idx> {
+        self.0.iter()
+    }
+
+    fn from_slice(s: &[Idx]) -> Self {
+        let mut res = Self([0; 10]);
+        res.0.clone_from_slice(s);
+        res
+    }
+
+    fn from_iter<I: Iterator<Item = Idx>>(mut s: I) -> Self {
+        let mut res = Self([0; 10]);
+        for i in 0..10 {
+            res.0[i] = s.next().unwrap();
+        }
+        res
+    }
+
+    fn sort(&mut self) {
+        self.0.sort_unstable();
+    }
+
+    #[inline]
+    fn face(&self, i: Idx) -> Self::Face {
+        debug_assert!(i < Self::N_FACES);
+        match i {
+            0 => TriangleQuadratique([self.0[1], self.0[2], self.0[3], self.0[4], self.0[5], self.0[6]]),
+            1 => TriangleQuadratique([self.0[2], self.0[0], self.0[3], self.0[4], self.0[7], self.0[8]]),
+            2 => TriangleQuadratique([self.0[0], self.0[1], self.0[3], self.0[5], self.0[8], self.0[9]]),
+            3 => TriangleQuadratique([self.0[0], self.0[2], self.0[1], self.0[6], self.0[7], self.0[9]]),
+            _ => TriangleQuadratique([0, 0, 0, 0, 0, 0]),
+        }
+    }
+
+    fn edge(&self, i: Idx) -> [Idx; 3] {
+        debug_assert!(i < Self::N_EDGES);
+        match i {
+            0 => EdgeQuadratique([self.0[0], self.0[1], self.0[9]]),
+            1 => EdgeQuadratique([self.0[1], self.0[2], self.0[6]]),
+            2 => EdgeQuadratique([self.0[2], self.0[0], self.0[7]]),
+            3 => EdgeQuadratique([self.0[0], self.0[3], self.0[8]]),
+            4 => EdgeQuadratique([self.0[1], self.0[3], self.0[5]]),
+            5 => EdgeQuadratique([self.0[2], self.0[3], self.0[4]]),
+            _ => EdgeQuadratique([0, 0, 0]),
+        }
+    }
+}
+
+
+impl IntoIterator for TetrahedronQuadratique {
+    type Item = Idx;
+    type IntoIter = IntoIter<Idx, 10>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl Index<usize> for TetrahedronQuadratique {
+    type Output = Idx;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl IndexMut<usize> for TetrahedronQuadratique {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+
 /// Triangle
 #[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, Default)]
 pub struct Triangle([Idx; 3]);
@@ -272,6 +366,92 @@ impl IndexMut<usize> for Triangle {
     }
 }
 
+/// Triangle Quadratique
+#[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, Default)]
+pub struct TriangleQuadratique([Idx; 6]);
+
+impl TriangleQuadratique {
+    #[must_use]
+    pub const fn new(i0: Idx, i1: Idx, i2: Idx, i3: Idx, i4: Idx, i5: Idx) -> Self {
+        Self([i0, i1, i2, i3, i4, i5])
+    }
+}
+
+impl Elem for TriangleQuadratique {
+    const N_VERTS: Idx = 6;
+    const N_FACES: Idx = 3;
+    const N_EDGES: Idx = 3;
+    const DIM: Idx = 3;
+    const NAME: &'static str = "TriangleQuadratique";
+    type Face = EdgeQuadratique;
+    type Geom<const D: usize, M: Metric<D>> = GTriangleQuadratique<D, M>;
+
+    fn iter(&self) -> Iter<Idx> {
+        self.0.iter()
+    }
+
+    fn from_slice(s: &[Idx]) -> Self {
+        let mut res = Self([0; 6]);
+        res.0.clone_from_slice(s);
+        res
+    }
+
+    fn from_iter<I: Iterator<Item = Idx>>(mut s: I) -> Self {
+        let mut res = Self([0; 6]);
+        for i in 0..6 {
+            res.0[i] = s.next().unwrap();
+        }
+        res
+    }
+
+    fn sort(&mut self) {
+        self.0.sort_unstable();
+    }
+
+    #[inline]
+    fn face(&self, i: Idx) -> Self::Face {
+        debug_assert!(i < Self::N_FACES);
+        match i {
+            0 => EdgeQuadratique([self.0[0], self.0[1], self.0[5]]),
+            1 => EdgeQuadratique([self.0[1], self.0[2], self.0[3]]),
+            2 => EdgeQuadratique([self.0[2], self.0[0], self.0[4]]),
+            _ => EdgeQuadratique([0, 0, 0]),
+        }
+    }
+
+    fn edge(&self, i: Idx) -> [Idx; 3] {
+        assert!(i < Self::N_EDGES);
+        match i {
+            0 => [self.0[0], self.0[1], self.0[5]],
+            1 => [self.0[1], self.0[2], self.0[3]],
+            2 => [self.0[2], self.0[0], self.0[4]],
+            _ => [0, 0, 0],
+        }
+    }
+}
+
+impl IntoIterator for TriangleQuadratique {
+    type Item = Idx;
+    type IntoIter = IntoIter<Idx, 6>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+impl Index<usize> for TriangleQuadratique {
+    type Output = Idx;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+impl IndexMut<usize> for TriangleQuadratique {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+
 /// Edge
 #[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, Default)]
 pub struct Edge([Idx; 2]);
@@ -348,12 +528,96 @@ impl Index<usize> for Edge {
         &self.0[index]
     }
 }
-
 impl IndexMut<usize> for Edge {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.0[index]
     }
 }
+
+/// Edge Quadratique
+#[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, Default)]
+pub struct EdgeQuadratique([Idx; 3]);
+
+impl EdgeQuadratique {
+    #[must_use]
+    pub const fn new(i0: Idx, i1: Idx, i2: Idx) -> Self {
+        Self([i0, i1, i2])
+    }
+}
+
+impl Elem for EdgeQuadratique {
+    const N_VERTS: Idx = 3;
+    const N_FACES: Idx = 3;
+    const N_EDGES: Idx = 1;
+    const DIM: Idx = 2;
+    const NAME: &'static str = "Polyline_Quad";
+    type Face = Vertex;
+    type Geom<const D: usize, M: Metric<D>> = GEdgeQuadratique<D, M>;
+
+    fn iter(&self) -> Iter<Idx> {
+        self.0.iter()
+    }
+
+    fn from_slice(s: &[Idx]) -> Self {
+        let mut res = Self([0; 3]);
+        res.0.clone_from_slice(s);
+        res
+    }
+
+    fn from_iter<I: Iterator<Item = Idx>>(mut s: I) -> Self {
+        let mut res = Self([0; 3]);
+        for i in 0..3 {
+            res.0[i] = s.next().unwrap();
+        }
+        res
+    }
+
+    fn sort(&mut self) {
+        self.0.sort_unstable();
+    }
+
+    #[inline]
+    fn face(&self, i: Idx) -> Self::Face {
+        debug_assert!(i < Self::N_FACES);
+        match i {
+            0 => Vertex([self.0[0]]),
+            1 => Vertex([self.0[1]]),
+            2 => Vertex([self.0[2]]),
+            _ => Vertex([0]),
+        }
+    }
+
+    fn edge(&self, i: Idx) -> [Idx; 3] {
+        assert!(i < Self::N_EDGES);
+        match i {
+            0 => self.0,
+            _ => [0, 0, 0],
+        }
+    }
+}
+
+impl IntoIterator for EdgeQuadratique {
+    type Item = Idx;
+    type IntoIter = IntoIter<Idx, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+impl Index<usize> for EdgeQuadratique {
+    type Output = Idx;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl IndexMut<usize> for EdgeQuadratique {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
 
 /// Vertex
 /// The Vertex edges and afaces cannot be computed
